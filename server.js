@@ -9,7 +9,7 @@ app.set("views", "./views");
 
 var server = require("http").createServer(app);
 var io = require("socket.io")(server);// set up SOCKET.IO
-server.listen(process.env.PORT || 3000);
+server.listen(3000);
 
 var ArrUser = [];
 // listen to creat connection if recieve request
