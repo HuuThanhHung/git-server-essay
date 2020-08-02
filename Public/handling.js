@@ -1,5 +1,5 @@
 
-var socket = io("http://localhost:2020")
+var socket = io("18.216.213.41:2802")
 //4 step for login
 // Step 1: client send user name to server ----- client_send_username
 // Step 2: Server send back when regist failed  ----- server_send_failed
