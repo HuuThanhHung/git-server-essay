@@ -1,0 +1,216 @@
+#include <ESP8266WiFi.h>
+#include <ArduinoJson.h>
+#include <C:\Users\huuth\OneDrive\Documents\Arduino\libraries\SocketIOClient.h>
+#include <SoftwareSerial.h>
+#include <C:\Users\huuth\OneDrive\Documents\Arduino\libraries\Serial Command\ArduinoSerialCommand-master\SerialCommand.h> 
+#include <string.h>
+
+//=====================
+SocketIOClient client;
+const char* ssid = "ASUS";          //Wifi name
+const char* password = "11111111";  //Pass 
+int data_send = 0;
+char host[] = "3.18.143.29";  //IP AWS
+
+//char host[] = "192.168.100.165";//ip local
+int port = 1805;                  //PORT
+  char char_rcvd;
+char data_rcvd[32],data_temp[32];
+      char* ptr;
+      uint8_t data_rcvd_index,i_lol;
+      char str1[3][8];
+      int int1[3];
+      float pHvalue;
+      float temperature;
+
+
+
+
+// RID: Event name
+// Rfull: data
+extern String RID;
+extern String Rfull;
+
+unsigned long previousMillis = 0;
+long interval = 5000;
+bool receive_flag = false;
+
+void setup()
+{
+    //baudrate
+    Serial.begin(115200);
+    delay(10);
+ 
+    //Connect Wifi
+    Serial.print("Connect to Wifi.... ");
+    Serial.println(ssid);
+ 
+    //Start connect
+    WiFi.begin(ssid, password);
+ 
+    //wait until connect sucsessful
+    while (WiFi.status() != WL_CONNECTED) { //exit loop when connect successful
+        delay(500);
+        Serial.print("._-._");
+    }
+ 
+    Serial.println();
+    Serial.println(F("Connect Wifi success"));
+    Serial.println(F("IP Adress of ESP8266 (Socket Client ESP8266): "));
+    Serial.println(WiFi.localIP());
+ 
+    if (!client.connect(host, port)) {
+        Serial.println(F("create a socket with server failed!"));
+        return;
+    }
+ 
+    if (client.connected()) {
+        //Thì gửi sự kiện ("connection") đến Socket server ahihi.
+        Serial.println(F("create a socket with server success!"));
+        client.send("connect_ESP_server", "message", "Connected ESP and server success");
+    }
+    
+    
+    Serial.println("Ready to work, send me data");
+    
+    data_rcvd_index = 0;
+    
+}
+bool d =true;
+void loop()
+{ 
+    float a ;
+    float b ;
+    float c ;
+    
+    
+    int i;
+    
+    for(i=0;i<2;i++)
+    {
+       a = random(14);
+       b = random(50);
+       c = random(97); 
+          
+    }
+  //tạo một task cứ sau "interval" giây thì chạy lệnh:    
+//    if (millis() - previousMillis > interval) 
+//    {
+//        previousMillis = millis();
+//        Serial.println(F("send data to server each 2s"));//debug
+//        if(d == true)
+//        {
+//        sendDatatoServer(a,true,b,1);
+//        d =false;
+//        }
+//        else
+//        {
+//        sendDatatoServer(111,false,111,111);
+//        d = true;
+//        }
+//        
+//    }
+    
+  if(Serial.available()){
+    char_rcvd = Serial.read();
+    if((char_rcvd == 'X') && (receive_flag == false))
+    {
+      receive_flag = true;
+      strcpy(data_rcvd,"");
+      data_rcvd_index = 0;
+    }
+    else if(((char_rcvd == 'Z')||(char_rcvd == 'Y')) && (receive_flag == true))
+    {
+      receive_flag = false;
+      Serial.print("Tiva gui len:\n");
+      //Serial.print(data_rcvd);
+      ptr = strtok(data_rcvd," ");  // takes a list of delimiters
+      i_lol = 0;
+      while(ptr != '\0')
+      {
+          strcpy(str1[i_lol],ptr);
+          i_lol++;
+          ptr = strtok('\0'," ");
+      }
+      pHvalue = atof(str1[0]);
+      temperature = atof(str1[1]);
+      int1[2] = atoi(str1[2]);
+      Serial.print(int1[2]);
+      Serial.print("\n");
+      Serial.print(pHvalue);
+      Serial.print("\n");
+      Serial.print(temperature);
+      Serial.print("\n");
+      if(char_rcvd=='Z')
+      {
+        sendDatatoServer(temperature,false,pHvalue,int1[2]);
+      }
+      else if(char_rcvd=='Y')
+      {
+        sendDatatoServer(temperature,true,pHvalue,int1[2]);
+      }
+    }
+    else if(((char_rcvd != 'Z')||(char_rcvd == 'Y')) && (receive_flag == true))
+    {
+      //Serial.print(char_rcvd);
+      data_rcvd[data_rcvd_index] = char_rcvd;
+      data_rcvd_index++;
+    }
+    else if((char_rcvd != 'X') && (receive_flag == false))
+    {
+      Serial.flush();
+      strcpy(data_rcvd,"");
+      data_rcvd_index = 0;
+    }
+  }
+    
+ 
+    //Khi bắt được bất kỳ sự kiện nào thì chúng ta có hai tham số:
+    //  +RID: Tên sự kiện
+    //  +RFull: Danh sách tham số được nén thành chuỗi JSON!
+    if (client.monitor()) 
+    {
+        Serial.println(RID);
+        Serial.println(Rfull);
+    }
+ 
+    //Kết nối lại!
+    if (!client.connected()) 
+    {
+      client.reconnect(host, port);
+    }
+    //sCmd.readSerial();
+}
+void sendDatatoServer(float cpH,boolean cStatus,float cTemp,int cPumpStatus) 
+{
+  //float cpH = 18 ;//debug
+  Serial.print("pH: "); Serial.print(cpH);
+
+  //float cEC = 05 ;//debug
+  Serial.print("Status: "); Serial.print(cStatus);
+
+  //float cTemp = 19 ;//debug
+  Serial.print("Temp: "); Serial.print(cTemp);
+
+  //float cPumpStatus = 97 ;//debug
+  Serial.print("PumpStatus: "); Serial.print(cPumpStatus);
+
+  Serial.println();
+  StaticJsonBuffer<200> jsonBuffer;
+  JsonObject &root = jsonBuffer.createObject();
+   root["pH"] = cpH;
+   root["Status"] = cStatus;
+   root["Temp"] = cTemp;
+   root["PumpStatus"] = cPumpStatus;
+   
+   StaticJsonBuffer<200> jsonBuffer1;
+   JsonObject &root1 = jsonBuffer.createObject();
+   String jsonStr;
+   // if you want to send JSON with name
+   //root1["ESP"] = root;// get the name for JSON string
+   //root1.printTo(jsonStr);
+   
+   // just JSON data and no name for Json string
+   root.printTo(jsonStr);
+   client.send("Json_from_ESP", jsonStr);
+}

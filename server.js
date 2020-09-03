@@ -69,6 +69,8 @@ io.on("connection", function(socket){
        io.sockets.emit("stop_typing_from_server");
     });
 
+    socket.emit("Server_to_ESP","Hello ESP 8266"),500;
+
 
 });
 
