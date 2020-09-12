@@ -1,0 +1,69 @@
+//Include thư viện
+#include "OneWire.h"
+#include "DallasTemperature.h"
+char data_rcvd;
+uint16_t pH_ADC[10],T_ADC[10];
+float pH_value,T;
+uint16_t avgValue,temp;
+
+// Chân nối với Arduino
+#define ONE_WIRE_BUS 2
+//Thiết đặt thư viện onewire
+OneWire oneWire(ONE_WIRE_BUS);
+//Mình dùng thư viện DallasTemperature để đọc cho nhanh
+DallasTemperature sensors(&oneWire);
+
+void setup() {
+  // put your setup code here, to run once:
+  Serial.begin(115200);
+  sensors.begin();
+}
+
+void loop() {
+  
+//      digitalWrite(13,HIGH);
+//      delay(500);
+//      digitalWrite(13,LOW);
+//      delay(500);
+  //Serial.flush();
+  if(Serial.available())
+  {
+    data_rcvd = Serial.read();
+    if(data_rcvd == 'F')
+    {// put your main code here, to run repeatedly:;
+      for (int i = 0; i < 10; i++){
+        pH_ADC[i] = analogRead(A0);
+        delay(10);
+      }
+      
+      for (int i = 0; i < 9; i++){
+        for (int j = i + 1; j < 10; j++){
+          if (pH_ADC[i] > pH_ADC[j]){
+            temp = pH_ADC[i];
+            pH_ADC[i] = pH_ADC[j];
+            pH_ADC[j] = temp;
+          }
+        }
+      }
+    
+      avgValue = 0;
+      for (int i = 2; i < 8; i++)
+      {
+        avgValue += pH_ADC[i];
+      }
+      pH_value = (float)avgValue * 5.0 / 1023 / 6 * -5.82 + 26.12;
+      temp = (int)(pH_value*100);
+      pH_value = (float)temp/100;
+      sensors.requestTemperatures();
+      Serial.print(pH_value);
+      Serial.print(' ');
+      Serial.print(sensors.getTempCByIndex(0));
+      Serial.print('T');
+      digitalWrite(13,HIGH);
+      delay(500);
+      digitalWrite(13,LOW);
+      delay(500);
+      }
+   }
+   
+}

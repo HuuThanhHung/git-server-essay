@@ -1,0 +1,331 @@
+#include <stdarg.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <string.h>
+#include <inttypes.h>
+#include <stdint.h>
+#include <math.h>
+
+//inc libs
+#include "inc/hw_memmap.h"
+#include "inc/hw_types.h"
+#include "inc/hw_ints.h"
+#include "inc/hw_i2c.h"
+#include "inc/hw_gpio.h"
+
+//driverlib libs
+#include "driverlib/gpio.h"
+#include "driverlib/debug.h"
+#include "driverlib/interrupt.h"
+#include "driverlib/rom.h"
+#include "driverlib/rom_map.h"
+#include "driverlib/pin_map.h"
+#include "driverlib/sysctl.h"
+#include "driverlib/i2c.h"
+#include "driverlib/timer.h"
+#include "driverlib/uart.h"
+#include "driverlib/debug.h"
+#include "driverlib/adc.h"
+#include "utils/uartstdio.h"
+
+//My libraries
+#include "MyLibs/I2C_Wire.h"
+#include "MyLibs/LCD.h"
+#include "MyLibs/UART.h"
+#include "MyLibs/ADC.h"
+#include "MyLibs/UARTCOM.h"
+#include "MyLibs/GPIO.h"
+#include "MyLibs/UARTAR.h"
+
+
+#define SINGLE 0x0
+#define MULTIPLE 0x1
+
+//void delay(unsigned int time){DelayFunction()};
+//void delayMicroseconds(unsigned int time){time++;};
+
+uint32_t ui32ADC0Value[4],avrg_arr_pH[5],avrg_arr_T[5],avrg_arr_W[5];
+bool delay_sts, pump_pool_sts, pump_wash_sts, valve_sts;
+float pH_value, Temperature_value;
+char str[64];
+char LCD_str[64];
+char ARStr[64];
+char ARValueStr[2][8];
+bool ARSts;
+
+void Timer_ISR_1(void)
+{
+    TimerIntClear(TIMER0_BASE,TIMER_TIMA_TIMEOUT);
+    delay_sts = 0;
+    TimerDisable(TIMER0_BASE,TIMER_A);
+}
+
+void ConfigTimer_1(void)
+{
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
+    TimerConfigure(TIMER0_BASE,TIMER_CFG_PERIODIC); // config timer
+    TimerIntRegister(TIMER0_BASE,TIMER_A,&Timer_ISR_1);  // dang ki la co ngat timer, ham Timer_ISR la ham ngat
+    IntEnable(INT_TIMER0A);  // cho phep ngat timer 0
+    TimerIntEnable(TIMER0_BASE,TIMER_TIMA_TIMEOUT);  //
+}
+
+void delay(uint32_t ui32Ms) {
+	delay_sts = 1;
+    TimerLoadSet(TIMER0_BASE,TIMER_A,SysCtlClockGet()/1000*ui32Ms-1);
+    TimerEnable(TIMER0_BASE,TIMER_A);
+	while(delay_sts);
+}
+
+void delayMicroseconds(uint32_t ui32Us) {
+	delay_sts = 1;
+    TimerLoadSet(TIMER0_BASE,TIMER_A,SysCtlClockGet()/1000000*ui32Us-1);
+    TimerEnable(TIMER0_BASE,TIMER_A);
+	while(delay_sts);
+}
+
+void cleanStr(char* str)
+{
+	int i;
+	for(i = 0; i < 5;i++)
+	{
+		*(str+i)='\0';
+	}
+}
+
+void cleanARStr(char* str)
+{
+	int i;
+	for(i = 0; i < 8;i++)
+	{
+		*(str+i)='\0';
+	}
+}
+
+void cleanFullARStr(char* str)
+{
+	int i;
+	for(i = 0; i < 64;i++)
+	{
+		*(str+i)='\0';
+	}
+}
+
+char* float2string_pj(float fVal)
+{
+	static char float2string_pj_char[5];
+	cleanStr(float2string_pj_char);
+	float2string_pj_char[0]=((int)fVal/10)%10 + 48;
+	float2string_pj_char[1]=(int)fVal%10 + 48;
+	float2string_pj_char[2]='.';
+	float2string_pj_char[3]=(int)(fVal*10)%10 + 48;
+	if((int)(fVal*1000)%10 >= 5)
+	{
+		float2string_pj_char[4]=(int)(fVal*100)%10 + 49;
+	}
+	else
+	{
+		float2string_pj_char[4]=(int)(fVal*100)%10 + 48;
+	}
+    return float2string_pj_char;
+}
+
+void UARTSendESP(bool send_type)
+{
+	if(send_type)
+	{
+		sprintf(str,"X%s %s %d%d%dY",ARValueStr[1],ARValueStr[0],pump_pool_sts,pump_wash_sts,valve_sts);
+		UARTSendStr(str);
+	}
+	else
+	{
+		sprintf(str,"X6.9 6.9 %d%d%dZ",pump_pool_sts,pump_wash_sts,valve_sts);
+		UARTSendStr(str);
+	}
+}
+
+void UARTCOMSendESP(bool send_type)
+{
+	if(send_type)
+	{
+		sprintf(str,"X%s %s %d%d%dY\n",ARValueStr[1],ARValueStr[0],pump_pool_sts,pump_wash_sts,valve_sts);
+		UARTCOMSendStr(str);
+	}
+	else
+	{
+		sprintf(str,"X6.9 6.9 %d%d%dZ\n",pump_pool_sts,pump_wash_sts,valve_sts);
+		UARTCOMSendStr(str);
+	}
+}
+
+void InitialState(void)
+{
+	//xa? van 5s
+	valve_sts = GPIOPin2ON();
+	UARTSendESP(SINGLE);
+	UARTCOMSendESP(SINGLE);
+	delay(30000);
+	valve_sts = GPIOPin2OFF();
+
+	//rua? cam bien pH
+	pump_wash_sts = GPIOPin7ON();
+	UARTSendESP(SINGLE);
+	UARTCOMSendESP(SINGLE);
+	delay(15000);
+	pump_wash_sts = GPIOPin7OFF();
+
+	//xa? van 5s
+	valve_sts = GPIOPin2ON();
+	UARTSendESP(SINGLE);
+	UARTCOMSendESP(SINGLE);
+	delay(30000);
+	valve_sts = GPIOPin2OFF();
+	UARTSendESP(SINGLE);
+	UARTCOMSendESP(SINGLE);
+	delay(200);
+
+}
+
+void FulfilledpHSensor(void)
+{
+	avrg_arr_W[0] = avrg_arr_W[1] = avrg_arr_W[2] = avrg_arr_W[3] = avrg_arr_W[4] = 0;
+	do
+	{
+		ADCSample(ui32ADC0Value);
+		avrg_arr_W[0] = avrg_arr_W[1];
+		avrg_arr_W[1] = avrg_arr_W[2];
+		avrg_arr_W[2] = avrg_arr_W[3];
+		avrg_arr_W[3] = avrg_arr_W[4];
+		avrg_arr_W[4] = ui32ADC0Value[2];
+	}
+	while((avrg_arr_W[0] + avrg_arr_W[1] + avrg_arr_W[2] + avrg_arr_W[3] + avrg_arr_W[4]) < 3300*5);
+}
+
+void DataProcessing(char *str);
+
+void MainState(void)
+{
+
+	//xa? van 5s
+	valve_sts = GPIOPin2ON();
+	UARTSendESP(SINGLE);
+	UARTCOMSendESP(SINGLE);
+	delay(2000);
+	valve_sts = GPIOPin2OFF();
+
+	//bom nuoc vao ho
+	pump_pool_sts = GPIOPin6ON();
+	UARTSendESP(SINGLE);
+	UARTCOMSendESP(SINGLE);
+	UARTCOMSendStr("Bat dau ngam cam bien nuoc\n");
+	//FulfilledpHSensor();
+	delay(500);
+	UARTCOMSendStr("DAY ROI TAT DI\n");
+	pump_pool_sts = GPIOPin6OFF();
+	UARTSendESP(SINGLE);
+	UARTCOMSendESP(SINGLE);
+	delay(2000);
+
+	//doc cam bien pH
+//	static uint8_t i;
+//	for(i = 0; i < 5; i++)
+//	{
+//		ADCSample(ui32ADC0Value);
+//		avrg_arr_pH[i] = ui32ADC0Value[0];
+//		avrg_arr_T[i] = ui32ADC0Value[1];
+//	}
+
+	cleanFullARStr(ARStr);
+	cleanARStr(ARValueStr[0]);
+	cleanARStr(ARValueStr[1]);
+	UARTARSendStr("F");
+	while(ARSts);
+	DataProcessing(ARStr);
+//	delay(5);
+//	//pH_value = atof(ARValueStr[0]);
+//	delay(5);
+//	//Temperature_value = atof(ARValueStr[1]);
+//	delay(5);
+	UARTSendESP(MULTIPLE);
+	UARTCOMSendESP(MULTIPLE);
+
+	LiquidCrystal_I2C_setCursor(3,0);
+	LiquidCrystal_I2C_print(ARValueStr[0]);
+	LiquidCrystal_I2C_setCursor(2,1);
+	LiquidCrystal_I2C_print(ARValueStr[1]);
+
+	//gui gia tri len esp
+
+	//
+	//InitialState();
+
+	//ngam cam bien pH
+	pump_wash_sts = GPIOPin7ON();
+	UARTSendESP(SINGLE);
+	UARTCOMSendESP(SINGLE);
+	UARTCOMSendStr("Bat dau ngam cam bien nuoc\n");
+	//FulfilledpHSensor();
+	delay(500);
+	UARTCOMSendStr("DAY ROI TAT DI\n");
+	pump_wash_sts = GPIOPin7OFF();
+	UARTSendESP(SINGLE);
+	UARTCOMSendESP(SINGLE);
+
+}
+
+
+void DataProcessing(char *str)
+{
+    char* p_ch = strtok(str," ");
+    uint8_t i = 0;
+    while(p_ch != '\0')
+    {
+        strcpy(ARValueStr[i],p_ch);
+        i++;
+        p_ch = strtok('\0'," ");
+    }
+	UARTCOMSendStr(ARValueStr[0]);
+	UARTCOMSendStr("\n");
+	UARTCOMSendStr(ARValueStr[1]);
+	UARTCOMSendStr("\n");
+}
+
+
+
+int main(void){
+	//uint8_t i,j,h,k;
+
+	//
+	SysCtlClockSet(SYSCTL_SYSDIV_4 | SYSCTL_USE_PLL | SYSCTL_XTAL_16MHZ | SYSCTL_OSC_MAIN );
+	ConfigTimer_1();
+	TwoWire_setModule(1);
+	LiquidCrystal_I2C_LiquidCrystal_I2C(0x27, 16, 2);
+	LiquidCrystal_I2C_init();
+	LiquidCrystal_I2C_backlight();
+	LiquidCrystal_I2C_setCursor(0,0);
+	LiquidCrystal_I2C_print("pH:...");
+	LiquidCrystal_I2C_setCursor(0,1);
+	LiquidCrystal_I2C_print("T:...");
+	UARTCOMInit();
+	UARTInit();
+	ADCInit();
+	GPIOInit();
+	UARTARInit();
+	//InitialState();
+	int h,k;
+	int test[10];
+	uint32_t sum;
+	int temp;
+	while(1)
+	{
+		//MainState();
+		//ARStr(ui32ADC0Value);
+		//InitialState();
+		delay(500);
+		//SysCtlDelay(1000 * (SysCtlClockGet() / 3 / 1000));
+
+
+
+	}
+
+}
